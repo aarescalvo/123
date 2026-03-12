@@ -1,0 +1,437 @@
+================================================================================
+                    SOLEMAR ALIMENTARIA - FRIGORÍFICO
+                      DOCUMENTACIÓN PARA AI - PROMPT
+                   Sistema de Gestión Frigorífica v2.0
+================================================================================
+
+Este documento describe completamente el sistema para que una AI pueda 
+entender su arquitectura, funcionalidades, y asistir en desarrollo, 
+mantenimiento, o soporte técnico.
+
+================================================================================
+DESCRIPCIÓN GENERAL
+================================================================================
+
+Sistema de gestión integral para frigoríficos (mataderos) desarrollado en
+Next.js 16 con TypeScript. Gestiona el ciclo completo de procesamiento de
+ganado bovino y equino, desde la recepción hasta la expedición de productos.
+
+EMPRESA: Solemar Alimentaria
+UBICACIÓN: Córdoba, Argentina
+RUBRO: Faena y procesamiento de carnes
+
+================================================================================
+ARQUITECTURA TÉCNICA
+================================================================================
+
+STACK TECNOLÓGICO:
+- Framework: Next.js 16 (App Router)
+- Runtime: Bun (NO Node.js)
+- Lenguaje: TypeScript 5
+- Base de datos: SQLite con Prisma ORM
+- UI: Tailwind CSS 4 + shadcn/ui
+- Estado: Zustand (cliente) + React Query (servidor)
+- Autenticación: NextAuth.js v4 (con PIN)
+
+ESTRUCTURA DE DIRECTORIOS:
+/
+├── src/
+│   ├── app/                    # Next.js App Router
+│   │   ├── page.tsx            # Página principal (SPA)
+│   │   ├── api/                # API Routes
+│   │   │   ├── auth/           # Autenticación
+│   │   │   ├── tropas/         # Gestión de tropas
+│   │   │   ├── animales/       # Gestión de animales
+│   │   │   ├── lista-faena/    # Listas de faena
+│   │   │   ├── garrones-asignados/  # Asignación de garrones
+│   │   │   ├── romaneo/        # Pesaje de medias
+│   │   │   ├── menudencias/    # Subproductos
+│   │   │   └── ...             # Otros endpoints
+│   │   └── layout.tsx          # Layout raíz
+│   ├── components/             # Componentes React
+│   │   ├── ui/                 # shadcn/ui components
+│   │   ├── pesaje-camiones-module.tsx
+│   │   ├── pesaje-individual-module.tsx
+│   │   ├── lista-faena/
+│   │   ├── romaneo/
+│   │   ├── ingreso-cajon/
+│   │   └── ...
+│   ├── lib/                    # Utilidades
+│   │   ├── db.ts               # Cliente Prisma
+│   │   └── utils.ts            # Helpers
+│   └── hooks/                  # Custom hooks
+├── prisma/
+│   ├── schema.prisma           # Esquema de base de datos
+│   └── seed.ts                 # Datos iniciales
+├── db/                         # Base de datos SQLite
+│   └── solemar.db
+├── mini-services/              # Microservicios auxiliares
+└── public/                     # Archivos estáticos
+
+PUERTOS:
+- 3000: Aplicación principal
+- 3001-3005: Mini servicios (socket.io, etc.)
+
+================================================================================
+MODELOS DE DATOS PRINCIPALES (Prisma Schema)
+================================================================================
+
+ENTIDADES CORE:
+
+1. OPERADOR (Usuarios del sistema)
+   - id, nombre, usuario, password (hash), pin
+   - rol: OPERADOR | SUPERVISOR | ADMINISTRADOR
+   - Permisos granulares por módulo
+
+2. CLIENTE (Productores y Usuarios de Faena)
+   - id, nombre, cuit, matricula (para matarifes)
+   - esProductor: boolean
+   - esUsuarioFaena: boolean (matarifes)
+
+3. TROPA (Lote de animales)
+   - id, codigo (B 2026 0001), numero
+   - productorId, usuarioFaenaId
+   - especie: BOVINO | EQUINO
+   - dte, guia (documentos de tránsito)
+   - cantidadCabezas
+   - estado: RECIBIDO → EN_CORRAL → PESADO → LISTO_FAENA → EN_FAENA → FAENADO
+   - corralId (corral asignado)
+
+4. ANIMAL
+   - id, tropaId, numero, codigo
+   - tipoAnimal: TO | VA | VQ | NO | NT | MEJ (bovinos)
+   - pesoVivo (del pesaje individual)
+   - estado: RECIBIDO → PESADO → EN_FAENA → FAENADO → EN_CAMARA
+
+5. ASIGNACIONGARRON (Ingreso a Cajón)
+   - garron: número correlativo DIARIO (reset a 1 cada día)
+   - animalId
+   - tieneMediaDer, tieneMediaIzq (flags de pesaje)
+   - completado: boolean
+
+6. ROMANEO (Pesaje de medias reses)
+   - garron, tropaCodigo, numeroAnimal
+   - pesoVivo, denticion (0,2,4,6,8 dientes)
+   - tipificadorId
+   - pesoMediaIzq, pesoMediaDer, pesoTotal
+   - rinde: (pesoTotal / pesoVivo) * 100
+
+7. MEDIARES
+   - romaneoId, lado: IZQUIERDA | DERECHA
+   - peso, sigla: A | T | D (Asado, Trasero, Delantero)
+   - codigo (código de barras)
+   - camaraId, estado
+
+8. CAMARA (Cámaras frías)
+   - nombre, tipo: FAENA | CUARTEO | DEPOSITO
+   - capacidad (ganchos o KG según tipo)
+
+9. TIPIFICADOR
+   - nombre, apellido, matricula
+   - Activo en el romaneo
+
+================================================================================
+FLUJO DE TRABAJO (WORKFLOW)
+================================================================================
+
+CICLO I - PROCESO PRINCIPAL:
+
+1. PESAJE DE CAMIONES (Recepción)
+   ─────────────────────────────────
+   - Registro de camión con tropa
+   - Datos: patente, chofer, transportista
+   - Pesaje: Bruto → Tara → Neto
+   - Documentos: DTE, Guía de tránsito
+   - Selección de tipo y cantidad de animales
+   - Asignación de corral
+   - Creación automática de animales individuales
+
+2. PESAJE INDIVIDUAL
+   ─────────────────────────────────
+   - Pesaje de cada animal en balanza
+   - Registro de peso vivo individual
+   - Lectura de caravana (opcional)
+   - Actualización de stock en corral
+
+3. MOVIMIENTO DE HACIENDA
+   ─────────────────────────────────
+   - Movimientos entre corrales
+   - Registro de ingresos/egresos
+   - Control de stock por corral
+
+4. LISTA DE FAENA
+   ─────────────────────────────────
+   - Creación de lista diaria
+   - Selección de tropas a faenar
+   - Cantidad de animales por tropa
+   - Estado: ABIERTA → EN_PROCESO → CERRADA
+
+5. INGRESO A CAJÓN (Asignación de Garrones)
+   ─────────────────────────────────
+   - Asignación de número de garrón a cada animal
+   - Correlativo DIARIO (reinicia cada día en 1)
+   - Teclado numérico para entrada rápida
+   - Visualización de animales pendientes
+
+6. ROMANEO (Pesaje de Medias)
+   ─────────────────────────────────
+   - Pesaje de cada media res
+   - Registro: lado (DERECHA/IZQUIERDA), peso
+   - Dentición: 0, 2, 4, 6, 8 dientes
+   - Tipificador asignado
+   - Cámara de destino
+   - IMPRESIÓN DE 3 RÓTULOS POR MEDIA:
+     * Sigla A (Asado)
+     * Sigla T (Trasero)
+     * Sigla D (Delantero)
+   = 6 rótulos por animal completo
+
+7. VB ROMANEO (VoBo Supervisor)
+   ─────────────────────────────────
+   - Revisión de pesajes
+   - Confirmación o corrección
+   - Cierre de lista de faena
+
+8. EXPEDICIÓN
+   ─────────────────────────────────
+   - Despacho de productos
+   - Pesaje de camiones de salida
+   - Remitos y facturas
+
+CICLO II - DESPOSTADA:
+
+9. CUARTEO
+   ─────────────────────────────────
+   - Corte de medias en cuartos
+   - Asignación a cámaras de cuarteo
+
+10. INGRESO A DESPOSTADA
+    ─────────────────────────────────
+    - Registro de entrada a despostada
+    - Trazabilidad por tropa/garrón
+
+11. CORTES EN DESPOSTADA
+    ─────────────────────────────────
+    - Registro de cortes producidos
+    - Pesaje y etiquetado
+
+12. EMPAQUE
+    ─────────────────────────────────
+    - Empaquetado de productos
+    - Preparación para expedición
+
+SUBPRODUCTOS:
+
+13. MENUDENCIAS
+    ─────────────────────────────────
+    - Registro de hígado, riñón, corazón, etc.
+    - Elaboración y embolsado
+    - Impresión de rótulos
+
+14. CUEROS
+    ─────────────────────────────────
+    - Registro de cueros
+    - Pesaje y clasificación
+
+================================================================================
+RÓTULOS Y CÓDIGOS DE BARRAS
+================================================================================
+
+FORMATO DE RÓTULO (100mm x 70mm):
+- Encabezado: SOLEMAR ALIMENTARIA
+- Garrón: Número grande visible
+- Tropa: Código (B 2026 0001)
+- Tipo: VA, NO, etc.
+- Peso: en kg
+- Cámara: Destino
+- Dentición: 0-8 dientes
+- Sigla: A, T, D (grande)
+- Código de barras: YYMMDD-GGGG-L-S
+  Ejemplo: 260311-0002-D-A
+- Tipificador: Nombre y matrícula
+
+CÓDIGO DE BARRAS:
+- Formato: Code 39
+- Estructura: *AA-MM-DD-GARRON-LADO-SIGLA*
+- Ejemplo: *260311-0002-D-A*
+
+================================================================================
+PERMISOS DEL SISTEMA
+================================================================================
+
+Por módulo:
+- puedePesajeCamiones: Balanza de camiones
+- puedePesajeIndividual: Balanza de animales
+- puedeMovimientoHacienda: Mover animales entre corrales
+- puedeListaFaena: Crear/editar listas de faena
+- puedeRomaneo: Pesaje de medias reses
+- puedeIngresoCajon: Asignación de garrones
+- puedeMenudencias: Gestión de subproductos
+- puedeStock: Ver stocks de cámaras
+- puedeReportes: Acceso a reportes
+- puedeConfiguracion: Configuración del sistema
+
+================================================================================
+CREDENCIALES POR DEFECTO
+================================================================================
+
+Admin:
+- Usuario: admin
+- Password: admin123
+- PIN: 1234
+- Todos los permisos
+
+Balanza:
+- Usuario: balanza
+- Password: balanza123
+- PIN: 1111
+- Pesaje de camiones e individual
+
+Supervisor:
+- Usuario: supervisor
+- Password: super123
+- PIN: 2222
+- Todos los permisos excepto configuración
+
+================================================================================
+APIS PRINCIPALES
+================================================================================
+
+AUTENTICACIÓN:
+- POST /api/auth: Login (usuario/password o PIN)
+- GET /api/auth?operadorId=xxx: Validar sesión
+- DELETE /api/auth: Logout
+
+TROPAS:
+- GET /api/tropas: Listar tropas
+- POST /api/tropas: Crear tropa
+- PUT /api/tropas/[id]: Actualizar
+- GET /api/tropas/mover: Movimiento entre corrales
+
+PESAJE CAMIONES:
+- GET /api/pesaje-camion: Listar pesajes
+- POST /api/pesaje-camion: Crear pesaje
+- PUT /api/pesaje-camion: Actualizar tara/neto
+
+LISTA FAENA:
+- GET /api/lista-faena: Listar listas
+- POST /api/lista-faena: Crear lista
+- GET /api/lista-faena/animales-hoy: Animales disponibles
+- POST /api/lista-faena/tropas: Agregar tropa a lista
+- POST /api/lista-faena/cerrar: Cerrar lista
+
+GARRONES:
+- GET /api/garrones-asignados: Listar asignaciones del día
+- POST /api/garrones-asignados: Asignar garrón
+- POST /api/garrones-asignados/cambiar-animal: Cambiar animal
+- POST /api/garrones-asignados/intercambiar: Intercambiar garrones
+
+ROMANEO:
+- POST /api/romaneo/pesar: Registrar pesaje de media res
+- GET /api/romaneo/medias-dia: Medias pesadas hoy
+- GET /api/romaneos: Listar romaneos
+
+MENUDENCIAS:
+- GET /api/menudencias: Listar
+- POST /api/menudencias: Crear
+- PUT /api/menudencias: Actualizar elaboración
+
+================================================================================
+FUNCIONALIDADES ESPECIALES
+================================================================================
+
+TECLADO NUMÉRICO (Ingreso Cajón):
+- Interfaz tipo ATM para entrada rápida
+- Botones grandes para pantalla táctil
+- Navegación con teclado
+- Soporte para lectores de código de barras
+
+IMPRESIÓN DE RÓTULOS:
+- Generación automática de HTML para impresión
+- 3 rótulos por media (A, T, D)
+- Ventana emergente con window.print()
+- Compatible con impresoras térmicas
+
+CÁLCULO DE RINDE:
+- Automático al completar ambas medias
+- Fórmula: (pesoTotal / pesoVivo) * 100
+- Almacenado en Romaneo
+
+CORRELATIVIDAD DE GARRÓN:
+- Reinicio diario automático
+- Verificación de duplicados
+- Corrección de correlatividad
+
+================================================================================
+COMANDOS DE DESARROLLO
+================================================================================
+
+Instalación:
+  bun install
+
+Base de datos:
+  bun run db:generate    # Generar cliente Prisma
+  bun run db:push        # Sincronizar schema
+  bun run db:seed        # Cargar datos iniciales
+  bun run db:studio      # Abrir Prisma Studio
+
+Desarrollo:
+  bun run dev            # Servidor de desarrollo (puerto 3000)
+  bun run build          # Compilar para producción
+  bun run start          # Iniciar en producción
+  bun run lint           # Verificar código
+
+================================================================================
+ERRORES CONOCIDOS Y SOLUCIONES
+================================================================================
+
+1. Foreign Key Error en Romaneo:
+   - Causa: operadorId o tipificadorId no válido
+   - Solución: Validar IDs antes de crear registro
+
+2. Fast Refresh Full Reload:
+   - Causa: Sesión de operador inválida en localStorage
+   - Solución: Limpiar localStorage y re-login
+
+3. API retorna 404:
+   - Causa: Endpoint no existe o ruta incorrecta
+   - Solución: Verificar estructura en src/app/api/
+
+4. Base de datos locked:
+   - Causa: Múltiples conexiones a SQLite
+   - Solución: Reiniciar servicio
+
+================================================================================
+CONFIGURACIÓN DE PRODUCCIÓN
+================================================================================
+
+Variables de entorno (.env):
+  DATABASE_URL=file:./db/solemar.db
+  PORT=3000
+  NODE_ENV=production
+  NEXTAUTH_SECRET=[generar-con-openssl]
+  NEXTAUTH_URL=http://localhost:3000
+
+Servicio de Windows (NSSM):
+  nssm install SolemarFrigorifico "C:\...\bun.exe" "run" "start"
+  nssm set SolemarFrigorifico AppDirectory C:\Solemar
+  nssm set SolemarFrigorifico Start SERVICE_AUTO_START
+
+Firewall:
+  netsh advfirewall firewall add rule name="Solemar" dir=in action=allow protocol=tcp localport=3000
+
+================================================================================
+EXTENSIONES Y MÓDULOS ADICIONALES
+================================================================================
+
+El sistema incluye módulos adicionales que pueden activarse:
+- Facturación: Integración con AFIP
+- CCIR: Certificados de exportación
+- Declaración Jurada: Documentos SENASA
+- Reportes SENASA: Formatos oficiales
+- Auditoría: Log de todas las operaciones
+- Calidad: Registro de usuarios (reclamos)
+
+================================================================================
+FIN DEL DOCUMENTO
+================================================================================

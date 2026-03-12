@@ -1,0 +1,428 @@
+================================================================================
+                    SOLEMAR ALIMENTARIA - FRIGORÍFICO
+                   INSTRUCCIONES DE INSTALACIÓN v2.0
+                         Sistema de Gestión Frigorífica
+================================================================================
+
+ÍNDICE
+------
+1. REQUISITOS DEL SISTEMA
+2. INSTALACIÓN RÁPIDA
+3. INSTALACIÓN PASO A PASO
+4. ERRORES COMUNES Y SOLUCIONES
+5. CONFIGURACIÓN POST-INSTALACIÓN
+6. RESPALDO Y RECUPERACIÓN
+7. ACTUALIZACIONES
+8. SOPORTE TÉCNICO
+
+================================================================================
+1. REQUISITOS DEL SISTEMA
+================================================================================
+
+REQUISITOS MÍNIMOS:
+- Sistema Operativo: Windows 10/11 (64 bits)
+- Procesador: Intel Core i3 o equivalente
+- Memoria RAM: 4 GB
+- Espacio en disco: 2 GB libres
+- Navegador: Chrome, Firefox, Edge (últimas versiones)
+
+REQUISITOS RECOMENDADOS:
+- Sistema Operativo: Windows 11 (64 bits)
+- Procesador: Intel Core i5 o superior
+- Memoria RAM: 8 GB o más
+- Espacio en disco: 5 GB libres (para backups)
+- Impresora: Para rótulos y tickets
+- Lector de código de barras: Para trazabilidad
+
+REDES:
+- Puerto 3000 TCP (acceso local)
+- Conexión de red local para múltiples usuarios
+
+================================================================================
+2. INSTALACIÓN RÁPIDA
+================================================================================
+
+OPCIÓN A - INSTALADOR AUTOMÁTICO (RECOMENDADO):
+1. Extraer el archivo ZIP en C:\Solemar
+2. Abrir PowerShell como Administrador
+3. Ejecutar: Set-ExecutionPolicy Bypass -Scope Process -Force
+4. Ejecutar: .\install-windows.ps1
+5. Seguir las instrucciones en pantalla
+
+OPCIÓN B - INSTALACIÓN MANUAL:
+1. Instalar Bun desde https://bun.sh
+2. Extraer archivos a C:\Solemar
+3. Ejecutar en CMD/PowerShell:
+   cd C:\Solemar
+   bun install
+   bun run db:generate
+   bun run db:push
+   bun run db:seed
+   bun run build
+   bun run start
+
+================================================================================
+3. INSTALACIÓN PASO A PASO
+================================================================================
+
+PASO 1: PREPARAR EL ENTORNO
+---------------------------
+a) Verificar que Windows está actualizado
+   - Inicio → Configuración → Actualización y seguridad
+   - Instalar todas las actualizaciones pendientes
+
+b) Desactivar antivirus temporalmente (opcional pero recomendado)
+   - Algunos antivirus bloquean la instalación de Bun
+   - Reactivar después de la instalación
+
+c) Crear carpeta de instalación
+   - Crear C:\Solemar si no existe
+   - Asegurar permisos de escritura
+
+
+PASO 2: INSTALAR BUN RUNTIME
+----------------------------
+Bun es el motor de ejecución del sistema. Sin él, la aplicación no funciona.
+
+MÉTODO 1 - PowerShell (Recomendado):
+   powershell -c "irm bun.sh/install.ps1 | iex"
+
+MÉTODO 2 - Usando npm (si ya tiene Node.js):
+   npm install -g bun
+
+MÉTODO 3 - Descarga manual:
+   1. Ir a https://github.com/oven-sh/bun/releases
+   2. Descargar bun-windows-x64.zip
+   3. Extraer en C:\Users\[Usuario]\AppData\Local\bun
+   4. Agregar a PATH del sistema
+
+VERIFICAR INSTALACIÓN:
+   bun --version
+   Debe mostrar: 1.x.x o superior
+
+
+PASO 3: COPIAR ARCHIVOS DEL SISTEMA
+-----------------------------------
+a) Extraer el archivo ZIP descargado
+b) Copiar TODOS los archivos a C:\Solemar
+c) Verificar que existan:
+   - package.json
+   - prisma/schema.prisma
+   - src/app/page.tsx
+   - .env.example
+
+
+PASO 4: CONFIGURAR VARIABLES DE ENTORNO
+---------------------------------------
+a) Crear archivo .env en C:\Solemar
+b) Copiar el contenido de .env.example
+c) Configurar:
+
+   DATABASE_URL=file:./db/solemar.db
+   PORT=3000
+   NODE_ENV=production
+   NEXTAUTH_SECRET=cambiar-este-secret-en-produccion
+   NEXTAUTH_URL=http://localhost:3000
+
+IMPORTANTE: Cambiar NEXTAUTH_SECRET en producción por una cadena aleatoria.
+
+
+PASO 5: INSTALAR DEPENDENCIAS
+-----------------------------
+Abrir PowerShell en C:\Solemar:
+   cd C:\Solemar
+   bun install
+
+Esto puede tardar 2-5 minutos dependiendo de la conexión a internet.
+
+
+PASO 6: CONFIGURAR BASE DE DATOS
+--------------------------------
+Ejecutar los siguientes comandos:
+
+   bun run db:generate    # Genera el cliente de base de datos
+   bun run db:push        # Crea las tablas
+   bun run db:seed        # Carga datos iniciales
+
+Si db:seed falla, verificar que el archivo prisma/seed.ts existe.
+
+
+PASO 7: COMPILAR LA APLICACIÓN
+------------------------------
+   bun run build
+
+Esto puede tardar 1-3 minutos. El sistema compilará todos los componentes.
+
+
+PASO 8: INICIAR EL SISTEMA
+--------------------------
+   bun run start
+
+Abrir navegador en: http://localhost:3000
+
+
+PASO 9: VERIFICAR FUNCIONAMIENTO
+--------------------------------
+a) Debe aparecer la pantalla de login de Solemar Alimentaria
+b) Iniciar sesión con:
+   - Usuario: admin
+   - Password: admin123
+   - O PIN: 1234
+
+c) Verificar que el dashboard carga correctamente
+
+================================================================================
+4. ERRORES COMUNES Y SOLUCIONES
+================================================================================
+
+ERROR 1: "bun no se reconoce como comando interno o externo"
+----------------------------------------------------------------
+CAUSA: Bun no está instalado o no está en PATH
+SOLUCIÓN:
+   1. Instalar Bun: powershell -c "irm bun.sh/install.ps1 | iex"
+   2. Reiniciar PowerShell/CMD
+   3. Verificar: bun --version
+   4. Si persiste, agregar manualmente a PATH:
+      - Buscar "Variables de entorno" en Windows
+      - Editar PATH en variables de usuario
+      - Agregar: C:\Users\[Usuario]\.bun\bin
+
+
+ERROR 2: "EACCES: permission denied"
+----------------------------------------------------------------
+CAUSA: Falta de permisos de escritura
+SOLUCIÓN:
+   1. Ejecutar CMD/PowerShell como Administrador
+   2. Verificar que la carpeta no esté protegida contra escritura
+   3. Ejecutar: icacls C:\Solemar /grant Usuarios:(OI)(CI)F
+
+
+ERROR 3: "Port 3000 is already in use"
+----------------------------------------------------------------
+CAUSA: El puerto 3000 está ocupado por otra aplicación
+SOLUCIÓN:
+   1. Ver qué proceso usa el puerto: netstat -ano | findstr :3000
+   2. Matar el proceso: taskkill /PID [número] /F
+   3. O cambiar puerto en .env: PORT=3001
+
+
+ERROR 4: "Cannot find module '@prisma/client'"
+----------------------------------------------------------------
+CAUSA: Cliente Prisma no generado
+SOLUCIÓN:
+   1. Ejecutar: bun run db:generate
+   2. Si falla, ejecutar: bun add prisma @prisma/client
+   3. Luego: bun run db:generate
+
+
+ERROR 5: "Database file not found" o "DATABASE_URL invalid"
+----------------------------------------------------------------
+CAUSA: Base de datos no existe o ruta incorrecta
+SOLUCIÓN:
+   1. Verificar DATABASE_URL en .env
+   2. Asegurar que la carpeta db/ existe
+   3. Ejecutar: bun run db:push
+   4. Verificar que se creó db/solemar.db
+
+
+ERROR 6: "PrismaClientKnownRequestError: Foreign key constraint"
+----------------------------------------------------------------
+CAUSA: Datos inconsistentes o sesión antigua
+SOLUCIÓN:
+   1. Limpiar localStorage del navegador (F12 → Application → Clear)
+   2. Reiniciar sesión con credenciales válidas
+   3. Si persiste, resetear base de datos:
+      bun run db:push --force-reset
+      bun run db:seed
+
+
+ERROR 7: "SyntaxError: Unexpected token '<'"
+----------------------------------------------------------------
+CAUSA: API no existe o retorna HTML de error
+SOLUCIÓN:
+   1. Verificar que todas las APIs existen en src/app/api/
+   2. Revisar logs en consola
+   3. Reconstruir: bun run build
+
+
+ERROR 8: "Fast Refresh had to perform a full reload"
+----------------------------------------------------------------
+CAUSA: Error de runtime en React
+SOLUCIÓN:
+   1. Este error aparece en desarrollo, no afecta producción
+   2. Si persiste: limpiar .next y reconstruir
+      rmdir /s /q .next
+      bun run build
+
+
+ERROR 9: Windows no puede encontrar 'nssm.exe'
+----------------------------------------------------------------
+CAUSA: El instalador no pudo descargar NSSM
+SOLUCIÓN:
+   1. Descargar manualmente desde https://nssm.cc
+   2. Extraer nssm.exe en C:\Solemar
+   3. Ejecutar servicio manualmente o crear acceso directo
+
+
+ERROR 10: "El sistema no puede encontrar la ruta especificada"
+----------------------------------------------------------------
+CAUSA: Carpeta de instalación incorrecta
+SOLUCIÓN:
+   1. Verificar que C:\Solemar existe
+   2. Verificar que todos los archivos fueron copiados
+   3. Reinstalar desde ZIP original
+
+
+ERROR 11: Pantalla blanca al cargar
+----------------------------------------------------------------
+CAUSA: Error de JavaScript o compilación incompleta
+SOLUCIÓN:
+   1. Abrir DevTools (F12)
+   2. Verificar errores en consola
+   3. Reconstruir: bun run build
+   4. Limpiar caché del navegador
+
+
+ERROR 12: No imprime rótulos
+----------------------------------------------------------------
+CAUSA: Configuración de impresora o bloqueo de popups
+SOLUCIÓN:
+   1. Permitir popups en el navegador para localhost
+   2. Verificar que la impresora está configurada como predeterminada
+   3. Probar impresión de página de prueba
+
+
+ERROR 13: "ENOENT: no such file or directory"
+----------------------------------------------------------------
+CAUSA: Archivo o carpeta faltante
+SOLUCIÓN:
+   1. Verificar estructura de carpetas
+   2. Verificar que node_modules existe
+   3. Reinstalar dependencias: bun install
+
+
+ERROR 14: Aplicación muy lenta
+----------------------------------------------------------------
+CAUSA: Recursos insuficientes o base de datos corrupta
+SOLUCIÓN:
+   1. Verificar uso de RAM (mínimo 4GB libres)
+   2. Compactar base de datos SQLite
+   3. Reiniciar el servicio
+   4. Verificar antivirus no esté escaneando C:\Solemar
+
+
+ERROR 15: Error de autenticación
+----------------------------------------------------------------
+CAUSA: Credenciales incorrectas o sesión corrupta
+SOLUCIÓN:
+   1. Limpiar localStorage del navegador
+   2. Usar credenciales correctas: admin / admin123
+   3. Si persiste, resetear base de datos
+
+================================================================================
+5. CONFIGURACIÓN POST-INSTALACIÓN
+================================================================================
+
+CONFIGURAR IMPRESORA DE RÓTULOS:
+1. Conectar impresora térmica
+2. Instalar drivers del fabricante
+3. Configurar tamaño de etiqueta (100mm x 70mm recomendado)
+4. Establecer como impresora predeterminada
+
+CONFIGURAR BALANZA:
+1. Conectar balanza por RS232/USB
+2. Configurar puerto COM en Configuración → Balanzas
+3. Configurar baud rate (generalmente 9600)
+
+CONFIGURAR CÁMARAS FRÍAS:
+1. Ir a Configuración → Cámaras
+2. Agregar cámaras con nombre y capacidad
+3. Asignar tipo (FAENA, CUARTEO, DEPÓSITO)
+
+CONFIGURAR TIPIFICADORES:
+1. Ir a Configuración → Operadores
+2. Crear usuarios para cada tipificador
+3. Asignar número de matrícula
+
+CONFIGURAR CORRALES:
+1. Ir a Configuración → Corrales
+2. Agregar corrales con capacidad
+3. Asignar a tropas según corresponda
+
+CAMBIAR CREDENCIALES:
+1. Iniciar sesión como admin
+2. Ir a Configuración → Operadores
+3. Editar el usuario admin
+4. Cambiar password y PIN
+5. IMPORTANTE: Guardar las nuevas credenciales
+
+================================================================================
+6. RESPALDO Y RECUPERACIÓN
+================================================================================
+
+RESPALDO MANUAL:
+1. Ejecutar backup.bat desde C:\Solemar
+2. O copiar manualmente:
+   - db/solemar.db (base de datos)
+   - .env (configuración)
+
+RESPALDO PROGRAMADO:
+1. Abrir Programador de tareas de Windows
+2. Crear tarea básica
+3. Acción: Iniciar programa
+4. Programa: C:\Solemar\backup.bat
+5. Programar: Diariamente a las 23:00
+
+RECUPERACIÓN:
+1. Detener el servicio: net stop SolemarFrigorifico
+2. Copiar backup a C:\Solemar\db\solemar.db
+3. Reiniciar: net start SolemarFrigorifico
+
+EXPORTAR DATOS:
+- Los backups son archivos SQLite compatibles
+- Se pueden abrir con DB Browser for SQLite
+- Para exportar a Excel: usar consultas SQL
+
+================================================================================
+7. ACTUALIZACIONES
+================================================================================
+
+ACTUALIZACIÓN AUTOMÁTICA:
+1. Ejecutar actualizar.bat
+2. El sistema descargará e instalará actualizaciones
+3. Reiniciar el servicio
+
+ACTUALIZACIÓN MANUAL:
+1. Detener el servicio
+2. Descargar nueva versión
+3. Extraer archivos (sobrescribir)
+4. Ejecutar: bun install && bun run db:push && bun run build
+5. Reiniciar el servicio
+
+VERSIÓN ACTUAL:
+- Revisar en package.json → "version"
+- O en el dashboard del sistema
+
+================================================================================
+8. SOPORTE TÉCNICO
+================================================================================
+
+ARCHIVOS DE LOG:
+- C:\Solemar\Data\logs\service.log
+- C:\Solemar\Data\logs\error.log
+- Consola del navegador (F12)
+
+INFORMACIÓN A PROPORCIONAR AL SOPORTE:
+1. Versión del sistema
+2. Sistema operativo
+3. Mensaje de error exacto
+4. Pasos para reproducir el error
+5. Capturas de pantalla
+
+CONTACTO:
+- GitHub: https://github.com/aarescalvo/123
+- Documentación: Ver archivo AI-PROMPT.txt
+
+================================================================================
+                           FIN DE LAS INSTRUCCIONES
+================================================================================
