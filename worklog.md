@@ -1,4 +1,29 @@
 ---
+Task ID: 50
+Agent: main
+Task: Corregir validación de tipos - Permitir agregar tipos no declarados y eliminar doble confirmación
+
+Work Log:
+- Eliminado checkbox de doble confirmación (era innecesario)
+- Agregada funcionalidad para agregar tipos de animales NO declarados en el DTE:
+  * Selector con tipos disponibles (los que no están ya en la lista)
+  * Botón "Agregar" para incluir nuevos tipos
+  * Los tipos nuevos se marcan con badge "NUEVO" y fondo azul
+  * Botón de eliminar (basura) para tipos agregados manualmente
+- Modificado handleConfirmarValidacion para no requerir confirmacionCheck
+- Tipos nuevos tienen cantidadDTE = 0 (indicando que no venían en el DTE original)
+- Interfaz más clara con indicadores visuales:
+  * Fondo azul para tipos nuevos
+  * Fondo amber para tipos con diferencias
+  * Badge "NUEVO" para identificacíon rápida
+
+Stage Summary:
+- Ahora se pueden agregar tipos de animales que no estaban declarados en el DTE
+- No hay doble confirmación innecesaria
+- Interfaz más intuitiva y funcional
+- El operador puede ajustar la realidad vs el DTE fácilmente
+
+---
 Task ID: 49
 Agent: main
 Task: Mejoras en módulo Pesaje Individual - Validación de tipos y estados simplificados
@@ -24,16 +49,6 @@ Work Log:
   * Validación en tiempo real del conteo por tipo
   * Indicadores visuales de tipos disponibles vs agotados
 
-- Nueva interfaz de dos secciones claras:
-  * Sección "Tropas Por Pesar" - fondo amber
-  * Sección "Tropas Pesadas" - fondo green
-
-- Mejoras visuales adicionales:
-  * Resumen de tipos confirmados siempre visible durante pesaje
-  * Contador de restantes por tipo en botones de selección
-  * Badge con conteo pesados/restantes por tipo
-  * Alerta cuando no hay tipos disponibles
-
 Stage Summary:
 - Módulo Pesaje Individual completamente mejorado
 - Validación obligatoria antes de pesar
@@ -41,57 +56,10 @@ Stage Summary:
 - Interfaz más clara y profesional
 - Previene errores de asignación de tipos incorrectos
 
----
-Task ID: 48
-Agent: main
-Task: Verificación completa del sistema, actualización de permisos y subida a GitHub
-
-Work Log:
-- Verificadas todas las APIs principales funcionando:
-  * /api/dashboard - 200 OK
-  * /api/tropas - 200 OK
-  * /api/corrales - 200 OK
-  * /api/camaras - 200 OK
-  * /api/tipificadores - 200 OK
-  * /api/clientes - 200 OK
-  * /api/transportistas - 200 OK
-- Verificados permisos en schema Prisma:
-  * puedePesajeCamiones
-  * puedePesajeIndividual
-  * puedeMovimientoHacienda
-  * puedeListaFaena
-  * puedeRomaneo
-  * puedeIngresoCajon
-  * puedeMenudencias
-  * puedeStock
-  * puedeReportes
-  * puedeCCIR
-  * puedeFacturacion
-  * puedeConfiguracion
-- Verificada interfaz Operador con todos los permisos
-- Verificado mapeo de permisos en API /api/auth
-- Actualizado tipo Page con todos los módulos del NAV_GROUPS
-- Ejecutado seed para actualizar permisos de operadores:
-  * Admin: todos los permisos
-  * Supervisor: pesaje, lista faena, romaneo, menudencias, stock, reportes, CCIR
-  * Balanza: solo pesaje camiones, pesaje individual, movimiento hacienda
-- Actualizado instalador Windows (install-windows.ps1)
-- Actualizado archivo de instrucciones (INSTRUCCIONES-INSTALACION.txt)
-- Actualizado documentación para IA (AI-PROMPT.txt)
-- Sincronizados archivos del proyecto a carpeta install/
-
-Stage Summary:
-- Sistema completamente verificado
-- Todas las APIs funcionando correctamente
-- Permisos de operadores actualizados
-- Instalador actualizado
-- Documentación actualizada
-- Listo para subir a GitHub
-
 MÓDULOS DEL SISTEMA:
 CICLO I:
 - Pesaje Camiones ✓
-- Pesaje Individual ✓ (MEJORADO - Validación de tipos)
+- Pesaje Individual ✓ (MEJORADO - Agregar tipos no declarados)
 - Movimiento Hacienda ✓
 - Lista de Faena ✓
 - Ingreso a Cajón ✓
@@ -137,6 +105,3 @@ CONFIGURACIÓN:
 - Impresoras ✓
 - Terminales ✓
 - Y más...
-
-CALIDAD:
-- Registro de Usuarios (reclamos) ✓

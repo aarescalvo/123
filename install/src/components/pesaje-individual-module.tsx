@@ -118,7 +118,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
   // Diálogo de validación
   const [validacionDialogOpen, setValidacionDialogOpen] = useState(false)
   const [tiposConfirmados, setTiposConfirmados] = useState<TipoCantidadConfirmada[]>([])
-  const [confirmacionCheck, setConfirmacionCheck] = useState(false)
+  const [nuevoTipoSeleccionado, setNuevoTipoSeleccionado] = useState('')
   
   // Edit dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -281,12 +281,32 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
   const totalConfirmados = tiposConfirmados.reduce((acc, tc) => acc + tc.cantidadConfirmada, 0)
   const totalDTE = tiposConfirmados.reduce((acc, tc) => acc + tc.cantidadDTE, 0)
 
-  const handleConfirmarValidacion = async () => {
-    if (!confirmacionCheck) {
-      toast.error('Debe confirmar que los datos coinciden con lo recibido')
+  // Función para agregar un nuevo tipo de animal no declarado en el DTE
+  const agregarNuevoTipo = () => {
+    if (!nuevoTipoSeleccionado) return
+    
+    // Verificar si ya existe
+    if (tiposConfirmados.some(tc => tc.tipoAnimal === nuevoTipoSeleccionado)) {
+      toast.error('Este tipo de animal ya está en la lista')
       return
     }
     
+    // Agregar nuevo tipo con cantidadDTE = 0 (no estaba en el DTE)
+    setTiposConfirmados(prev => [...prev, {
+      tipoAnimal: nuevoTipoSeleccionado,
+      cantidadDTE: 0,
+      cantidadConfirmada: 1
+    }])
+    setNuevoTipoSeleccionado('')
+    toast.success('Tipo agregado correctamente')
+  }
+  
+  // Función para eliminar un tipo de animal
+  const eliminarTipo = (tipoAnimal: string) => {
+    setTiposConfirmados(prev => prev.filter(tc => tc.tipoAnimal !== tipoAnimal))
+  }
+
+  const handleConfirmarValidacion = async () => {
     if (totalConfirmados === 0) {
       toast.error('Debe haber al menos un animal confirmado')
       return
@@ -1255,12 +1275,16 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                   {tiposConfirmados.map((tc) => {
                     const tipoInfo = TIPOS_ANIMALES[tropaSeleccionada?.especie || 'BOVINO']?.find(t => t.codigo === tc.tipoAnimal)
                     const diferencia = tc.cantidadConfirmada - tc.cantidadDTE
+                    const esNuevo = tc.cantidadDTE === 0 // Tipo agregado manualmente
                     return (
-                      <TableRow key={tc.tipoAnimal} className={diferencia !== 0 ? 'bg-amber-50' : ''}>
+                      <TableRow key={tc.tipoAnimal} className={esNuevo ? 'bg-blue-50' : diferencia !== 0 ? 'bg-amber-50' : ''}>
                         <TableCell>
-                          <div>
+                          <div className="flex items-center gap-2">
                             <span className="font-bold">{tc.tipoAnimal}</span>
-                            <span className="text-xs text-stone-500 ml-1">({tipoInfo?.label})</span>
+                            <span className="text-xs text-stone-500">({tipoInfo?.label})</span>
+                            {esNuevo && (
+                              <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700 border-blue-300">NUEVO</Badge>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-center font-mono text-lg">
@@ -1272,7 +1296,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                             value={tc.cantidadConfirmada}
                             onChange={(e) => setCantidadConfirmada(tc.tipoAnimal, parseInt(e.target.value) || 0)}
                             className={`w-20 text-center font-bold text-lg mx-auto ${
-                              diferencia !== 0 ? 'border-amber-400 bg-amber-50' : ''
+                              esNuevo ? 'border-blue-400 bg-blue-50' : diferencia !== 0 ? 'border-amber-400 bg-amber-50' : ''
                             }`}
                             min="0"
                           />
@@ -1296,8 +1320,19 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                             >
                               <Plus className="w-4 h-4" />
                             </Button>
+                            {esNuevo && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => eliminarTipo(tc.tipoAnimal)}
+                                className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                title="Eliminar tipo"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
                           </div>
-                          {diferencia !== 0 && (
+                          {!esNuevo && diferencia !== 0 && (
                             <span className={`text-xs ${diferencia > 0 ? 'text-red-600' : 'text-blue-600'}`}>
                               {diferencia > 0 ? `+${diferencia}` : diferencia}
                             </span>
@@ -1360,19 +1395,37 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
               </Select>
             </div>
 
-            {/* Checkbox de confirmación */}
-            <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <input
-                type="checkbox"
-                id="confirmacion"
-                checked={confirmacionCheck}
-                onChange={(e) => setConfirmacionCheck(e.target.checked)}
-                className="w-5 h-5 mt-0.5 cursor-pointer"
-              />
-              <label htmlFor="confirmacion" className="text-sm text-green-800 cursor-pointer">
-                <strong>Confirmo</strong> que los datos mostrados coinciden con lo recibido físicamente.
-                Entiendo que no podré modificar estas cantidades después de iniciar el pesaje.
-              </label>
+            {/* Agregar tipo de animal no declarado */}
+            <div className="space-y-2 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <Label className="text-sm font-semibold text-blue-800">Agregar tipo de animal no declarado en DTE</Label>
+              <div className="flex gap-2">
+                <Select value={nuevoTipoSeleccionado} onValueChange={setNuevoTipoSeleccionado}>
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Seleccionar tipo..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIPOS_ANIMALES[tropaSeleccionada?.especie || 'BOVINO']
+                      ?.filter(t => !tiposConfirmados.some(tc => tc.tipoAnimal === t.codigo))
+                      .map(t => (
+                        <SelectItem key={t.codigo} value={t.codigo}>
+                          {t.codigo} - {t.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <Button 
+                  onClick={agregarNuevoTipo} 
+                  disabled={!nuevoTipoSeleccionado}
+                  variant="outline"
+                  className="bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Agregar
+                </Button>
+              </div>
+              <p className="text-xs text-blue-600">
+                Si vino un tipo de animal no declarado en el DTE, puede agregarlo aquí.
+              </p>
             </div>
           </div>
 
@@ -1388,7 +1441,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
             </Button>
             <Button 
               onClick={handleConfirmarValidacion}
-              disabled={!confirmacionCheck || totalConfirmados === 0 || !corralDestinoId}
+              disabled={totalConfirmados === 0 || !corralDestinoId}
               className="bg-green-600 hover:bg-green-700"
             >
               <CheckCircle className="w-4 h-4 mr-2" />
