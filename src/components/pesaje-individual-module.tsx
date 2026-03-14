@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { 
   Scale, RefreshCw, Printer, Eye, Plus, Save, CheckCircle, AlertCircle,
-  Beef, Edit, Trash2, ArrowRight, X
+  Beef, Edit, Trash2, ArrowRight, X, Minus, AlertTriangle, ClipboardCheck
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -87,9 +87,16 @@ interface Animal {
   estado: string
 }
 
+// Tipo para cantidades validadas/confirmadas
+interface TipoCantidadConfirmada {
+  tipoAnimal: string
+  cantidadDTE: number      // Cantidad original del DTE
+  cantidadConfirmada: number // Cantidad validada/ajustada
+}
+
 export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropas?: Tropa[]; operador: Operador }) {
   const [tropas, setTropas] = useState<Tropa[]>(propTropas || [])
-  const [tropasListoPesaje, setTropasListoPesaje] = useState<Tropa[]>([])
+  const [tropasPorPesar, setTropasPorPesar] = useState<Tropa[]>([])
   const [tropasPesado, setTropasPesado] = useState<Tropa[]>([])
   const [corrales, setCorrales] = useState<Corral[]>([])
   const [loading, setLoading] = useState(!propTropas)
@@ -108,9 +115,10 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
   const [pesoActual, setPesoActual] = useState('')
   const [observacionesAnimal, setObservacionesAnimal] = useState('')
   
-  // Rotulo preview
-  const [showRotuloPreview, setShowRotuloPreview] = useState(false)
-  const [rotuloPreviewData, setRotuloPreviewData] = useState<Animal | null>(null)
+  // Diálogo de validación
+  const [validacionDialogOpen, setValidacionDialogOpen] = useState(false)
+  const [tiposConfirmados, setTiposConfirmados] = useState<TipoCantidadConfirmada[]>([])
+  const [confirmacionCheck, setConfirmacionCheck] = useState(false)
   
   // Edit dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -127,8 +135,11 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
   }, [propTropas])
 
   useEffect(() => {
-    // Filtrar tropas por estado
-    setTropasListoPesaje(tropas.filter(t => t.estado === 'EN_PESAJE' || t.estado === 'RECIBIDO' || t.estado === 'EN_CORRAL'))
+    // Simplificar estados: "Por pesar" incluye RECIBIDO, EN_CORRAL, EN_PESAJE
+    // "Pesado" es el estado final
+    setTropasPorPesar(tropas.filter(t => 
+      t.estado === 'EN_PESAJE' || t.estado === 'RECIBIDO' || t.estado === 'EN_CORRAL'
+    ))
     setTropasPesado(tropas.filter(t => t.estado === 'PESADO'))
   }, [tropas])
 
@@ -154,10 +165,57 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
     }
   }
 
-  const tiposAnimalActuales = TIPOS_ANIMALES[tropaSeleccionada?.especie || 'BOVINO'] || []
   const razasActuales = tropaSeleccionada?.especie === 'EQUINO' ? RAZAS_EQUINO : RAZAS_BOVINO
 
+  // Tipos de animales disponibles para pesar (solo los confirmados con cantidad > 0)
+  const tiposDisponiblesParaPesar = useMemo(() => {
+    if (tiposConfirmados.length === 0) return []
+    
+    const todosTipos = TIPOS_ANIMALES[tropaSeleccionada?.especie || 'BOVINO'] || []
+    
+    // Filtrar solo los tipos que tienen cantidad confirmada > 0
+    return todosTipos.filter(t => {
+      const confirmado = tiposConfirmados.find(tc => tc.tipoAnimal === t.codigo)
+      return confirmado && confirmado.cantidadConfirmada > 0
+    })
+  }, [tiposConfirmados, tropaSeleccionada?.especie])
+
+  // Conteo de animales pesados por tipo
+  const conteoPesadosPorTipo = useMemo(() => {
+    const conteo: Record<string, number> = {}
+    animales.filter(a => a.estado === 'PESADO').forEach(a => {
+      conteo[a.tipoAnimal] = (conteo[a.tipoAnimal] || 0) + 1
+    })
+    return conteo
+  }, [animales])
+
+  // Verificar si un tipo está disponible para seleccionar
+  const isTipoDisponible = (tipoCodigo: string): { disponible: boolean; restantes: number; mensaje: string } => {
+    const confirmado = tiposConfirmados.find(tc => tc.tipoAnimal === tipoCodigo)
+    if (!confirmado || confirmado.cantidadConfirmada === 0) {
+      return { disponible: false, restantes: 0, mensaje: 'No declarado en la tropa' }
+    }
+    
+    const pesados = conteoPesadosPorTipo[tipoCodigo] || 0
+    const restantes = confirmado.cantidadConfirmada - pesados
+    
+    if (restantes <= 0) {
+      return { disponible: false, restantes: 0, mensaje: 'Límite alcanzado' }
+    }
+    
+    return { disponible: true, restantes, mensaje: `${restantes} restantes` }
+  }
+
   const handleSeleccionarTropa = async (tropa: Tropa) => {
+    // Inicializar tipos confirmados con los datos del DTE
+    const tiposIniciales: TipoCantidadConfirmada[] = (tropa.tiposAnimales || []).map(t => ({
+      tipoAnimal: t.tipoAnimal,
+      cantidadDTE: t.cantidad,
+      cantidadConfirmada: t.cantidad
+    }))
+    setTiposConfirmados(tiposIniciales)
+    setConfirmacionCheck(false)
+    
     // Fetch animals if already exist
     try {
       const res = await fetch(`/api/tropas/${tropa.id}`)
@@ -186,6 +244,9 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
     
     setTropaSeleccionada(tropa)
     resetFormFields()
+    
+    // Abrir diálogo de validación
+    setValidacionDialogOpen(true)
   }
 
   const resetFormFields = () => {
@@ -194,6 +255,72 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
     setRaza('')
     setPesoActual('')
     setObservacionesAnimal('')
+  }
+
+  // Función para ajustar cantidad confirmada
+  const ajustarCantidadConfirmada = (tipoAnimal: string, delta: number) => {
+    setTiposConfirmados(prev => prev.map(tc => {
+      if (tc.tipoAnimal === tipoAnimal) {
+        const nuevaCantidad = Math.max(0, tc.cantidadConfirmada + delta)
+        return { ...tc, cantidadConfirmada: nuevaCantidad }
+      }
+      return tc
+    }))
+  }
+
+  const setCantidadConfirmada = (tipoAnimal: string, cantidad: number) => {
+    setTiposConfirmados(prev => prev.map(tc => {
+      if (tc.tipoAnimal === tipoAnimal) {
+        return { ...tc, cantidadConfirmada: Math.max(0, cantidad) }
+      }
+      return tc
+    }))
+  }
+
+  // Total de animales confirmados
+  const totalConfirmados = tiposConfirmados.reduce((acc, tc) => acc + tc.cantidadConfirmada, 0)
+  const totalDTE = tiposConfirmados.reduce((acc, tc) => acc + tc.cantidadDTE, 0)
+
+  const handleConfirmarValidacion = async () => {
+    if (!confirmacionCheck) {
+      toast.error('Debe confirmar que los datos coinciden con lo recibido')
+      return
+    }
+    
+    if (totalConfirmados === 0) {
+      toast.error('Debe haber al menos un animal confirmado')
+      return
+    }
+    
+    if (!corralDestinoId) {
+      toast.error('Seleccione el corral de destino')
+      return
+    }
+    
+    setValidacionDialogOpen(false)
+    
+    // Si las cantidades cambiaron, actualizar en la base de datos
+    if (totalConfirmados !== totalDTE || tiposConfirmados.some(tc => tc.cantidadConfirmada !== tc.cantidadDTE)) {
+      try {
+        await fetch('/api/tropas', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: tropaSeleccionada?.id,
+            cantidadCabezas: totalConfirmados,
+            tiposAnimales: tiposConfirmados.map(tc => ({
+              tipoAnimal: tc.tipoAnimal,
+              cantidad: tc.cantidadConfirmada
+            }))
+          })
+        })
+        toast.success('Cantidades actualizadas según lo recibido')
+      } catch {
+        toast.error('Error al actualizar cantidades')
+      }
+    }
+    
+    handleIniciarPesaje()
   }
 
   const handleIniciarPesaje = async () => {
@@ -220,15 +347,15 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
         toast.success('Pesaje iniciado')
         setActiveTab('pesar')
         
-        // Create animals list based on tiposAnimales
+        // Create animals list based on tiposConfirmados (no tiposAnimales originales)
         if (animales.length === 0) {
           const nuevosAnimales: Animal[] = []
           let num = 1
           const prefijo = tropaSeleccionada.especie === 'BOVINO' ? 'B' : 'E'
           const year = new Date().getFullYear()
           
-          for (const tipo of tropaSeleccionada.tiposAnimales || []) {
-            for (let i = 0; i < tipo.cantidad; i++) {
+          for (const tipo of tiposConfirmados) {
+            for (let i = 0; i < tipo.cantidadConfirmada; i++) {
               nuevosAnimales.push({
                 id: `temp-${num}`,
                 numero: num,
@@ -266,6 +393,13 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
 
     if (!tipoAnimalSeleccionado) {
       toast.error('Seleccione el tipo de animal')
+      return
+    }
+
+    // Validar que el tipo esté disponible y no exceda el límite
+    const tipoDisponible = isTipoDisponible(tipoAnimalSeleccionado)
+    if (!tipoDisponible.disponible) {
+      toast.error(`No puede asignar más animales de tipo ${tipoAnimalSeleccionado}: ${tipoDisponible.mensaje}`)
       return
     }
 
@@ -367,6 +501,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
         setTropaSeleccionada(null)
         setAnimales([])
         setAnimalActual(0)
+        setTiposConfirmados([])
         setActiveTab('solicitar')
         await fetchData()
       } else {
@@ -381,7 +516,6 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
   }
 
   const imprimirRotulo = (animal: Animal) => {
-    // Rótulo simplificado con SOLO 4 datos clave
     const printWindow = window.open('', '_blank', 'width=300,height=400')
     if (printWindow) {
       printWindow.document.write(`
@@ -449,7 +583,6 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
               <div class="empresa">SOLEMAR ALIMENTARIA</div>
             </div>
             
-            <!-- 4 DATOS CLAVE -->
             <div class="dato">
               <span class="label">TROPA:</span>
               <span class="valor">${tropaSeleccionada?.codigo || ''}</span>
@@ -487,11 +620,6 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
     }
   }
 
-  const previewRotulo = (animal: Animal) => {
-    setRotuloPreviewData(animal)
-    setShowRotuloPreview(true)
-  }
-
   const handleEditAnimal = (animal: Animal) => {
     setEditingAnimal(animal)
     setEditCaravana(animal.caravana || '')
@@ -521,7 +649,6 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
         toast.success('Animal actualizado')
         setEditDialogOpen(false)
         
-        // Update local state
         const updated = animales.map(a => {
           if (a.id === editingAnimal.id) {
             return {
@@ -589,7 +716,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold text-stone-800">Pesaje Individual</h2>
-            <p className="text-stone-500">Pesaje de animales por tropa con identificación completa</p>
+            <p className="text-stone-500">Pesaje de animales por tropa con validación de datos</p>
           </div>
           <div className="flex items-center gap-4">
             <Button variant="outline" size="sm" onClick={fetchData}>
@@ -598,7 +725,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
             </Button>
             <Badge variant="outline" className="text-lg px-4 py-2">
               <Beef className="h-4 w-4 mr-2 text-amber-500" />
-              {tropasListoPesaje.length} tropas pendientes
+              {tropasPorPesar.length} por pesar
             </Badge>
           </div>
         </div>
@@ -612,15 +739,19 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
 
           {/* SOLICITAR TROPA */}
           <TabsContent value="solicitar" className="space-y-6">
+            {/* TROPAS POR PESAR */}
             <Card className="border-0 shadow-md">
-              <CardHeader>
-                <CardTitle className="text-lg">Tropas Disponibles para Pesaje</CardTitle>
+              <CardHeader className="bg-amber-50">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 text-amber-600" />
+                  Tropas Por Pesar
+                </CardTitle>
                 <CardDescription>
-                  Seleccione una tropa para iniciar el pesaje individual
+                  Tropas recibidas pendientes de pesaje individual
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {tropasListoPesaje.length === 0 ? (
+                {tropasPorPesar.length === 0 ? (
                   <div className="text-center py-8 text-stone-400">
                     <Beef className="w-12 h-12 mx-auto mb-3 opacity-50" />
                     <p>No hay tropas pendientes de pesaje</p>
@@ -634,12 +765,11 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                         <TableHead>Especie</TableHead>
                         <TableHead>Cabezas</TableHead>
                         <TableHead>Corral</TableHead>
-                        <TableHead>Estado</TableHead>
                         <TableHead>Acciones</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {tropasListoPesaje.map((tropa) => (
+                      {tropasPorPesar.map((tropa) => (
                         <TableRow key={tropa.id} className="hover:bg-stone-50">
                           <TableCell className="font-mono font-bold">{tropa.codigo}</TableCell>
                           <TableCell>{tropa.usuarioFaena?.nombre || '-'}</TableCell>
@@ -648,16 +778,6 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                           </TableCell>
                           <TableCell className="font-medium">{tropa.cantidadCabezas}</TableCell>
                           <TableCell>{typeof tropa.corral === 'object' ? tropa.corral?.nombre : tropa.corral || '-'}</TableCell>
-                          <TableCell>
-                            <Badge className={
-                              tropa.estado === 'RECIBIDO' ? 'bg-amber-100 text-amber-700' :
-                              tropa.estado === 'EN_CORRAL' ? 'bg-blue-100 text-blue-700' :
-                              'bg-purple-100 text-purple-700'
-                            }>
-                              {tropa.estado === 'RECIBIDO' ? 'Recibido' : 
-                               tropa.estado === 'EN_CORRAL' ? 'En Corral' : 'En Pesaje'}
-                            </Badge>
-                          </TableCell>
                           <TableCell>
                             <Button
                               onClick={() => handleSeleccionarTropa(tropa)}
@@ -675,77 +795,59 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
               </CardContent>
             </Card>
 
-            {/* Detalle de tropa seleccionada */}
-            {tropaSeleccionada && (
-              <Card className="border-0 shadow-md border-amber-200">
-                <CardHeader className="bg-amber-50">
-                  <CardTitle className="text-lg">Tropa Seleccionada</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                    <div>
-                      <p className="text-sm text-stone-500">Código</p>
-                      <p className="text-xl font-mono font-bold">{tropaSeleccionada.codigo}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-stone-500">Usuario Faena</p>
-                      <p className="font-medium">{tropaSeleccionada.usuarioFaena?.nombre}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-stone-500">Especie</p>
-                      <p className="font-medium">{tropaSeleccionada.especie}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-stone-500">Total Cabezas</p>
-                      <p className="text-2xl font-bold text-amber-600">{tropaSeleccionada.cantidadCabezas}</p>
-                    </div>
+            {/* TROPAS PESADAS */}
+            <Card className="border-0 shadow-md">
+              <CardHeader className="bg-green-50">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  Tropas Pesadas
+                </CardTitle>
+                <CardDescription>
+                  Historial de tropas con pesaje completado
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {tropasPesado.length === 0 ? (
+                  <div className="text-center py-8 text-stone-400">
+                    <CheckCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p>No hay tropas pesadas</p>
                   </div>
-                  
-                  {/* Corral de destino */}
-                  <div className="mb-4 space-y-2">
-                    <Label className="text-base font-semibold">Corral de Destino *</Label>
-                    <Select value={corralDestinoId} onValueChange={setCorralDestinoId}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Seleccione el corral donde se ubicarán los animales..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {corrales.map((c) => {
-                          const stockActual = tropaSeleccionada.especie === 'BOVINO' ? c.stockBovinos : c.stockEquinos
-                          const disponible = c.capacidad - stockActual
-                          return (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.nombre} - Capacidad: {c.capacidad} | Disponible: {disponible}
-                            </SelectItem>
-                          )
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {tropaSeleccionada.tiposAnimales && tropaSeleccionada.tiposAnimales.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-sm text-stone-500 mb-2">Tipos de Animales:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {tropaSeleccionada.tiposAnimales.map((t, i) => (
-                          <Badge key={i} variant="outline" className="text-sm">
-                            {t.tipoAnimal}: {t.cantidad} cabezas
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <Button
-                    onClick={handleIniciarPesaje}
-                    disabled={saving || !corralDestinoId}
-                    className="w-full h-12 text-lg bg-green-600 hover:bg-green-700"
-                  >
-                    <Scale className="w-5 h-5 mr-2" />
-                    Iniciar Pesaje Individual
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Tropa</TableHead>
+                        <TableHead>Usuario Faena</TableHead>
+                        <TableHead>Especie</TableHead>
+                        <TableHead>Cabezas</TableHead>
+                        <TableHead>Peso Total</TableHead>
+                        <TableHead>Peso Promedio</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tropasPesado.map((tropa) => (
+                        <TableRow key={tropa.id} className="hover:bg-stone-50">
+                          <TableCell className="font-mono font-bold">{tropa.codigo}</TableCell>
+                          <TableCell>{tropa.usuarioFaena?.nombre || '-'}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{tropa.especie}</Badge>
+                          </TableCell>
+                          <TableCell className="font-medium">{tropa.cantidadCabezas}</TableCell>
+                          <TableCell className="font-bold text-green-600">
+                            {tropa.pesoTotalIndividual?.toLocaleString() || '-'} kg
+                          </TableCell>
+                          <TableCell>
+                            {tropa.pesoTotalIndividual && tropa.cantidadCabezas
+                              ? Math.round(tropa.pesoTotalIndividual / tropa.cantidadCabezas).toLocaleString() + ' kg/cab'
+                              : '-'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* PESAR ANIMALES */}
@@ -776,6 +878,24 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                     </div>
                   </div>
 
+                  {/* Resumen de tipos confirmados */}
+                  <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-sm font-medium text-blue-800 mb-2">Tipos confirmados para esta tropa:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {tiposConfirmados.filter(tc => tc.cantidadConfirmada > 0).map(tc => {
+                        const pesados = conteoPesadosPorTipo[tc.tipoAnimal] || 0
+                        const restantes = tc.cantidadConfirmada - pesados
+                        const tipoInfo = TIPOS_ANIMALES[tropaSeleccionada?.especie || 'BOVINO']?.find(t => t.codigo === tc.tipoAnimal)
+                        return (
+                          <Badge key={tc.tipoAnimal} variant={restantes > 0 ? "default" : "outline"} 
+                            className={restantes > 0 ? "bg-blue-600" : "bg-gray-400"}>
+                            {tc.tipoAnimal}: {pesados}/{tc.cantidadConfirmada} {restantes > 0 && `(${restantes} rest.)`}
+                          </Badge>
+                        )
+                      })}
+                    </div>
+                  </div>
+
                   {/* Datos del animal actual */}
                   {animales[animalActual] && (
                     <div className="space-y-4">
@@ -794,7 +914,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
 
                       {/* Campos de identificación */}
                       <div className="space-y-4">
-                        {/* Caravana */}
+                        {/* Caravana y Peso */}
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label>Caravana (opcional)</Label>
@@ -818,31 +938,51 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                           </div>
                         </div>
 
-                        {/* Tipo de Animal - Botones */}
+                        {/* Tipo de Animal - Solo los confirmados */}
                         <div className="space-y-2">
                           <Label className="text-base font-semibold">Tipo de Animal *</Label>
+                          <p className="text-xs text-stone-500 mb-2">
+                            Solo se muestran los tipos declarados con cantidad disponible
+                          </p>
                           <div className="flex flex-wrap gap-2">
-                            {tiposAnimalActuales.map((t) => {
+                            {tiposDisponiblesParaPesar.map((t) => {
+                              const tipoStatus = isTipoDisponible(t.codigo)
                               const isSelected = tipoAnimalSeleccionado === t.codigo
                               return (
                                 <button
                                   key={t.codigo}
                                   type="button"
-                                  onClick={() => setTipoAnimalSeleccionado(t.codigo)}
+                                  onClick={() => {
+                                    if (tipoStatus.disponible) {
+                                      setTipoAnimalSeleccionado(t.codigo)
+                                    }
+                                  }}
+                                  disabled={!tipoStatus.disponible}
                                   className={`px-4 py-3 rounded-lg border-2 font-bold text-lg transition-all ${
                                     isSelected 
                                       ? 'bg-amber-500 text-white border-amber-600 shadow-md' 
-                                      : 'bg-white border-gray-200 hover:border-amber-300 hover:bg-amber-50'
+                                      : tipoStatus.disponible
+                                        ? 'bg-white border-gray-200 hover:border-amber-300 hover:bg-amber-50'
+                                        : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
                                   }`}
                                 >
-                                  {t.codigo}
+                                  <span>{t.codigo}</span>
+                                  {tipoStatus.disponible && (
+                                    <span className="text-xs ml-1 block font-normal">({tipoStatus.restantes})</span>
+                                  )}
                                 </button>
                               )
                             })}
                           </div>
+                          {tiposDisponiblesParaPesar.length === 0 && (
+                            <p className="text-sm text-red-600 font-medium">
+                              ⚠️ No hay tipos disponibles - verifique la configuración de la tropa
+                            </p>
+                          )}
                           {tipoAnimalSeleccionado && (
                             <p className="text-sm text-stone-500 mt-1">
-                              Seleccionado: {tiposAnimalActuales.find(t => t.codigo === tipoAnimalSeleccionado)?.label}
+                              Seleccionado: {TIPOS_ANIMALES[tropaSeleccionada?.especie || 'BOVINO']?.find(t => t.codigo === tipoAnimalSeleccionado)?.label}
+                              {' '} - {isTipoDisponible(tipoAnimalSeleccionado).mensaje}
                             </p>
                           )}
                         </div>
@@ -943,6 +1083,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                             <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
                           )}
                           <span className="font-medium">#{animal.numero}</span>
+                          <Badge variant="outline" className="text-xs">{animal.tipoAnimal}</Badge>
                           {animal.caravana && (
                             <span className="text-xs text-stone-400">({animal.caravana})</span>
                           )}
@@ -1006,8 +1147,11 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
           {/* HISTORIAL */}
           <TabsContent value="historial">
             <Card className="border-0 shadow-md">
-              <CardHeader>
-                <CardTitle>Tropas Pesadas</CardTitle>
+              <CardHeader className="bg-green-50">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  Tropas Pesadas
+                </CardTitle>
                 <CardDescription>Historial de tropas con pesaje individual completado</CardDescription>
               </CardHeader>
               <CardContent>
@@ -1025,7 +1169,8 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                         <TableHead>Especie</TableHead>
                         <TableHead>Cabezas</TableHead>
                         <TableHead>Peso Total</TableHead>
-                        <TableHead>Peso Promedio</TableHead>
+                        <TableHead>Promedio</TableHead>
+                        <TableHead>Tipos</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1039,9 +1184,18 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                             {tropa.pesoTotalIndividual?.toLocaleString() || '-'} kg
                           </TableCell>
                           <TableCell>
-                            {tropa.pesoTotalIndividual 
-                              ? Math.round(tropa.pesoTotalIndividual / tropa.cantidadCabezas).toLocaleString() 
-                              : '-'} kg/cab
+                            {tropa.pesoTotalIndividual && tropa.cantidadCabezas
+                              ? Math.round(tropa.pesoTotalIndividual / tropa.cantidadCabezas).toLocaleString() + ' kg'
+                              : '-'}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {tropa.tiposAnimales?.map((t, i) => (
+                                <Badge key={i} variant="secondary" className="text-xs">
+                                  {t.tipoAnimal}: {t.cantidad}
+                                </Badge>
+                              ))}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -1054,12 +1208,204 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
         </Tabs>
       </div>
 
+      {/* DIÁLOGO DE VALIDACIÓN */}
+      <Dialog open={validacionDialogOpen} onOpenChange={setValidacionDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <ClipboardCheck className="w-6 h-6 text-amber-600" />
+              Validar Datos de la Tropa
+            </DialogTitle>
+            <DialogDescription>
+              Verifique que los tipos y cantidades coincidan con el DTE antes de iniciar el pesaje
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Info de la tropa */}
+            <div className="bg-stone-50 p-4 rounded-lg">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <p className="text-xs text-stone-500">Tropa</p>
+                  <p className="font-mono font-bold text-lg">{tropaSeleccionada?.codigo}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-stone-500">Usuario Faena</p>
+                  <p className="font-medium">{tropaSeleccionada?.usuarioFaena?.nombre}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-stone-500">Especie</p>
+                  <Badge variant="outline">{tropaSeleccionada?.especie}</Badge>
+                </div>
+              </div>
+            </div>
+
+            {/* Tabla de validación */}
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-stone-100">
+                    <TableHead className="font-semibold">Tipo</TableHead>
+                    <TableHead className="font-semibold text-center">DTE</TableHead>
+                    <TableHead className="font-semibold text-center">Recibido</TableHead>
+                    <TableHead className="font-semibold text-center w-32">Acción</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tiposConfirmados.map((tc) => {
+                    const tipoInfo = TIPOS_ANIMALES[tropaSeleccionada?.especie || 'BOVINO']?.find(t => t.codigo === tc.tipoAnimal)
+                    const diferencia = tc.cantidadConfirmada - tc.cantidadDTE
+                    return (
+                      <TableRow key={tc.tipoAnimal} className={diferencia !== 0 ? 'bg-amber-50' : ''}>
+                        <TableCell>
+                          <div>
+                            <span className="font-bold">{tc.tipoAnimal}</span>
+                            <span className="text-xs text-stone-500 ml-1">({tipoInfo?.label})</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center font-mono text-lg">
+                          {tc.cantidadDTE}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Input
+                            type="number"
+                            value={tc.cantidadConfirmada}
+                            onChange={(e) => setCantidadConfirmada(tc.tipoAnimal, parseInt(e.target.value) || 0)}
+                            className={`w-20 text-center font-bold text-lg mx-auto ${
+                              diferencia !== 0 ? 'border-amber-400 bg-amber-50' : ''
+                            }`}
+                            min="0"
+                          />
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => ajustarCantidadConfirmada(tc.tipoAnimal, -1)}
+                              disabled={tc.cantidadConfirmada <= 0}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Minus className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => ajustarCantidadConfirmada(tc.tipoAnimal, 1)}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </Button>
+                          </div>
+                          {diferencia !== 0 && (
+                            <span className={`text-xs ${diferencia > 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                              {diferencia > 0 ? `+${diferencia}` : diferencia}
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Totales */}
+            <div className="flex justify-between items-center p-4 bg-stone-50 rounded-lg">
+              <div>
+                <p className="text-sm text-stone-500">Total DTE</p>
+                <p className="text-2xl font-bold">{totalDTE}</p>
+              </div>
+              <ArrowRight className="w-6 h-6 text-stone-400" />
+              <div className="text-right">
+                <p className="text-sm text-stone-500">Total Confirmado</p>
+                <p className={`text-2xl font-bold ${totalConfirmados !== totalDTE ? 'text-amber-600' : 'text-green-600'}`}>
+                  {totalConfirmados}
+                </p>
+              </div>
+            </div>
+
+            {/* Alerta si hay diferencias */}
+            {totalConfirmados !== totalDTE && (
+              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-amber-800">Atención: Diferencia detectada</p>
+                  <p className="text-sm text-amber-700">
+                    La cantidad confirmada ({totalConfirmados}) difiere del DTE ({totalDTE}).
+                    Esta modificación se registrará en el sistema.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Corral de destino */}
+            <div className="space-y-2">
+              <Label className="text-base font-semibold">Corral de Destino *</Label>
+              <Select value={corralDestinoId} onValueChange={setCorralDestinoId}>
+                <SelectTrigger className="w-full h-12">
+                  <SelectValue placeholder="Seleccione el corral donde se ubicarán los animales..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {corrales.map((c) => {
+                    const stockActual = tropaSeleccionada?.especie === 'BOVINO' ? c.stockBovinos : c.stockEquinos
+                    const disponible = c.capacidad - stockActual
+                    return (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.nombre} - Capacidad: {c.capacidad} | Disponible: {disponible}
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Checkbox de confirmación */}
+            <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <input
+                type="checkbox"
+                id="confirmacion"
+                checked={confirmacionCheck}
+                onChange={(e) => setConfirmacionCheck(e.target.checked)}
+                className="w-5 h-5 mt-0.5 cursor-pointer"
+              />
+              <label htmlFor="confirmacion" className="text-sm text-green-800 cursor-pointer">
+                <strong>Confirmo</strong> que los datos mostrados coinciden con lo recibido físicamente.
+                Entiendo que no podré modificar estas cantidades después de iniciar el pesaje.
+              </label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setValidacionDialogOpen(false)
+                setTropaSeleccionada(null)
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleConfirmarValidacion}
+              disabled={!confirmacionCheck || totalConfirmados === 0 || !corralDestinoId}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Confirmar e Iniciar Pesaje
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Editar Animal #{editingAnimal?.numero}</DialogTitle>
-            <DialogDescription>Modifique los datos del animal</DialogDescription>
+            <DialogTitle>Editar Animal</DialogTitle>
+            <DialogDescription>
+              Modifique los datos del animal #{editingAnimal?.numero}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -1073,7 +1419,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {tiposAnimalActuales.map((t) => (
+                  {TIPOS_ANIMALES[tropaSeleccionada?.especie || 'BOVINO']?.map((t) => (
                     <SelectItem key={t.codigo} value={t.codigo}>{t.codigo} - {t.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1083,7 +1429,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
               <Label>Raza</Label>
               <Select value={editRaza} onValueChange={setEditRaza}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Sin raza" />
+                  <SelectValue placeholder="Seleccionar..." />
                 </SelectTrigger>
                 <SelectContent>
                   {razasActuales.map((r) => (
@@ -1099,55 +1445,7 @@ export function PesajeIndividualModule({ tropas: propTropas, operador }: { tropa
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSaveEdit} className="bg-amber-500 hover:bg-amber-600">Guardar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Rotulo Preview Dialog - SOLO 4 DATOS CLAVE */}
-      <Dialog open={showRotuloPreview} onOpenChange={setShowRotuloPreview}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Vista Previa del Rótulo</DialogTitle>
-          </DialogHeader>
-          {rotuloPreviewData && (
-            <div className="border-4 border-black p-4 rounded-lg bg-white">
-              <div className="text-center border-b-2 border-black pb-2 mb-3">
-                <p className="font-bold text-sm">SOLEMAR ALIMENTARIA</p>
-              </div>
-              
-              {/* 4 DATOS CLAVE */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center border-b border-dashed border-gray-300 pb-2">
-                  <span className="font-bold text-sm">TROPA:</span>
-                  <span className="font-bold text-lg">{tropaSeleccionada?.codigo}</span>
-                </div>
-                
-                <div className="flex justify-between items-center border-b border-dashed border-gray-300 pb-2">
-                  <span className="font-bold text-sm">ANIMAL Nº:</span>
-                  <span className="font-bold text-lg">{rotuloPreviewData.numero}</span>
-                </div>
-                
-                <div className="flex justify-between items-center border-b border-dashed border-gray-300 pb-2">
-                  <span className="font-bold text-sm">FECHA:</span>
-                  <span className="font-bold">{new Date().toLocaleDateString('es-AR')}</span>
-                </div>
-                
-                <div className="text-center py-3 bg-black text-white rounded font-bold text-2xl">
-                  {rotuloPreviewData.pesoVivo?.toLocaleString()} KG
-                </div>
-              </div>
-              
-              <div className="text-center mt-2 font-mono text-sm text-gray-600">
-                *{rotuloPreviewData.codigo}*
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRotuloPreview(false)}>Cerrar</Button>
-            <Button onClick={() => { if (rotuloPreviewData) imprimirRotulo(rotuloPreviewData); setShowRotuloPreview(false); }} className="bg-amber-500 hover:bg-amber-600">
-              <Printer className="w-4 h-4 mr-2" /> Imprimir
-            </Button>
+            <Button onClick={handleSaveEdit}>Guardar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
